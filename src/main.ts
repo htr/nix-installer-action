@@ -2,9 +2,10 @@ import * as actions_core from "@actions/core";
 import * as github from "@actions/github";
 import * as actions_tool_cache from "@actions/tool-cache";
 import * as actions_exec from "@actions/exec";
-import { chmod, access, writeFile } from "node:fs/promises";
+import { chmod, access, writeFile, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import stringArgv from "string-argv";
 
@@ -309,6 +310,10 @@ class NixInstallerAction {
     const binary_path = await this.fetch_binary();
     await this.execute_install(binary_path);
     await this.set_github_path();
+
+    if (process.env.NSC_VM_ID && !process.env.NOT_NAMESPACE) {
+      await NixDaemon.start();
+    }
   }
 
   async set_github_path(): Promise<void> {
@@ -355,6 +360,10 @@ class NixInstallerAction {
   }
 
   async execute_uninstall(): Promise<number> {
+    if (process.env.NSC_VM_ID && !process.env.NOT_NAMESPACE) {
+      await NixDaemon.stop();
+    }
+
     const exit_code = await actions_exec.exec(
       `/nix/nix-installer`,
       ["uninstall"],
@@ -489,6 +498,50 @@ class NixInstallerAction {
       actions_core.debug(`Error determining final disposition: ${error}`);
       return "unavailable";
     }
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+class NixDaemon {
+  static pidfile = "/tmp/nix-daemon.pid";
+  static socket = "/nix/var/nix/daemon-socket/socket";
+
+  static async stop(): Promise<void> {
+    if (fs.existsSync(NixDaemon.pidfile)) {
+      const data = await readFile(NixDaemon.pidfile, "utf8");
+      const pid = parseInt(data, 10);
+      if (isNaN(pid)) {
+        return;
+      }
+      await actions_exec.exec("sudo", ["kill", pid.toString()]);
+      await actions_exec.exec("sudo", ["rm", NixDaemon.socket]);
+    }
+  }
+
+  static async start(): Promise<void> {
+    const nixDaemon = spawn("sudo", ["nix-daemon"], {
+      detached: true,
+      stdio: "ignore",
+    });
+
+    nixDaemon.unref();
+
+    if (nixDaemon.pid !== undefined) {
+      await writeFile(NixDaemon.pidfile, nixDaemon.pid.toString());
+    }
+
+    // wait until the socket is available
+    const timeout = 5000;
+    let elapsed = 0;
+    while (elapsed < timeout) {
+      if (fs.existsSync(NixDaemon.socket)) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      elapsed += 500;
+    }
+
+    throw new Error("nix-daemon socket not found");
   }
 }
 

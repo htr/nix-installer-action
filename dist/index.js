@@ -21,9 +21,12 @@ __nccwpck_require__.r(__webpack_exports__);
 /* harmony import */ var node_crypto__WEBPACK_IMPORTED_MODULE_5___default = /*#__PURE__*/__nccwpck_require__.n(node_crypto__WEBPACK_IMPORTED_MODULE_5__);
 /* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_6__ = __nccwpck_require__(9411);
 /* harmony import */ var node_path__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__nccwpck_require__.n(node_path__WEBPACK_IMPORTED_MODULE_6__);
-/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(7561);
-/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_7___default = /*#__PURE__*/__nccwpck_require__.n(node_fs__WEBPACK_IMPORTED_MODULE_7__);
-/* harmony import */ var string_argv__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(1810);
+/* harmony import */ var node_child_process__WEBPACK_IMPORTED_MODULE_7__ = __nccwpck_require__(7718);
+/* harmony import */ var node_child_process__WEBPACK_IMPORTED_MODULE_7___default = /*#__PURE__*/__nccwpck_require__.n(node_child_process__WEBPACK_IMPORTED_MODULE_7__);
+/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_8__ = __nccwpck_require__(7561);
+/* harmony import */ var node_fs__WEBPACK_IMPORTED_MODULE_8___default = /*#__PURE__*/__nccwpck_require__.n(node_fs__WEBPACK_IMPORTED_MODULE_8__);
+/* harmony import */ var string_argv__WEBPACK_IMPORTED_MODULE_9__ = __nccwpck_require__(1810);
+
 
 
 
@@ -196,7 +199,7 @@ class NixInstallerAction {
             args.push(get_default_planner());
         }
         if (this.extra_args) {
-            const extra_args = (0,string_argv__WEBPACK_IMPORTED_MODULE_8__/* ["default"] */ .Z)(this.extra_args);
+            const extra_args = (0,string_argv__WEBPACK_IMPORTED_MODULE_9__/* ["default"] */ .Z)(this.extra_args);
             args.concat(extra_args);
         }
         const exit_code = await _actions_exec__WEBPACK_IMPORTED_MODULE_3__.exec(binary_path, args, {
@@ -240,6 +243,9 @@ class NixInstallerAction {
         const binary_path = await this.fetch_binary();
         await this.execute_install(binary_path);
         await this.set_github_path();
+        if (process.env.NSC_VM_ID && !process.env.NOT_NAMESPACE) {
+            await NixDaemon.start();
+        }
     }
     async set_github_path() {
         // Interim versions of the `nix-installer` crate may have already manipulated `$GITHUB_PATH`, as root even! Accessing that will be an error.
@@ -271,6 +277,9 @@ class NixInstallerAction {
         return netrc_path;
     }
     async execute_uninstall() {
+        if (process.env.NSC_VM_ID && !process.env.NOT_NAMESPACE) {
+            await NixDaemon.stop();
+        }
         const exit_code = await _actions_exec__WEBPACK_IMPORTED_MODULE_3__.exec(`/nix/nix-installer`, ["uninstall"], {
             env: Object.assign({ NIX_INSTALLER_NO_CONFIRM: "true" }, process.env),
             listeners: {
@@ -310,7 +319,7 @@ class NixInstallerAction {
             _actions_core__WEBPACK_IMPORTED_MODULE_0__.info(`Fetching binary from ${this.nix_installer_url}`);
             const binaryPath = await _actions_tool_cache__WEBPACK_IMPORTED_MODULE_2__.downloadTool(String(this.nix_installer_url));
             // Make executable
-            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_4__.chmod)(binaryPath, (node_fs__WEBPACK_IMPORTED_MODULE_7___default().constants.S_IXUSR) | (node_fs__WEBPACK_IMPORTED_MODULE_7___default().constants.S_IXGRP));
+            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_4__.chmod)(binaryPath, (node_fs__WEBPACK_IMPORTED_MODULE_8___default().constants.S_IXUSR) | (node_fs__WEBPACK_IMPORTED_MODULE_8___default().constants.S_IXGRP));
             return binaryPath;
         }
         else {
@@ -378,6 +387,43 @@ class NixInstallerAction {
         }
     }
 }
+// eslint-disable-next-line @typescript-eslint/no-extraneous-class
+class NixDaemon {
+    static async stop() {
+        if (node_fs__WEBPACK_IMPORTED_MODULE_8___default().existsSync(NixDaemon.pidfile)) {
+            const data = await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_4__.readFile)(NixDaemon.pidfile, "utf8");
+            const pid = parseInt(data, 10);
+            if (isNaN(pid)) {
+                return;
+            }
+            await _actions_exec__WEBPACK_IMPORTED_MODULE_3__.exec("sudo", ["kill", pid.toString()]);
+            await _actions_exec__WEBPACK_IMPORTED_MODULE_3__.exec("sudo", ["rm", NixDaemon.socket]);
+        }
+    }
+    static async start() {
+        const nixDaemon = (0,node_child_process__WEBPACK_IMPORTED_MODULE_7__.spawn)("sudo", ["nix-daemon"], {
+            detached: true,
+            stdio: "ignore",
+        });
+        nixDaemon.unref();
+        if (nixDaemon.pid !== undefined) {
+            await (0,node_fs_promises__WEBPACK_IMPORTED_MODULE_4__.writeFile)(NixDaemon.pidfile, nixDaemon.pid.toString());
+        }
+        // wait until the socket is available
+        const timeout = 5000;
+        let elapsed = 0;
+        while (elapsed < timeout) {
+            if (node_fs__WEBPACK_IMPORTED_MODULE_8___default().existsSync(NixDaemon.socket)) {
+                return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            elapsed += 500;
+        }
+        throw new Error("nix-daemon socket not found");
+    }
+}
+NixDaemon.pidfile = "/tmp/nix-daemon.pid";
+NixDaemon.socket = "/nix/var/nix/daemon-socket/socket";
 function get_nix_platform() {
     const env_os = process.env.RUNNER_OS;
     const env_arch = process.env.RUNNER_ARCH;
@@ -17183,6 +17229,14 @@ module.exports = require("https");
 
 "use strict";
 module.exports = require("net");
+
+/***/ }),
+
+/***/ 7718:
+/***/ ((module) => {
+
+"use strict";
+module.exports = require("node:child_process");
 
 /***/ }),
 
