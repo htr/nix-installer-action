@@ -9,7 +9,7 @@ on:
 jobs:
   check-dist-up-to-date:
     name: Check the dist/ folder is up to date
-    runs-on: ubuntu-22.04
+    runs-on: nscloud
     steps:
       - uses: actions/checkout@v3
       - run: npm install --no-save
@@ -18,7 +18,7 @@ jobs:
       - run: test $(git status --porcelain=v1 2>/dev/null | wc -l) -eq 0
   run-x86_64-linux:
     name: Run x86_64 Linux
-    runs-on: ubuntu-22.04
+    runs-on: nscloud
     steps:
       - uses: actions/checkout@v3
       - name: Install Nix
